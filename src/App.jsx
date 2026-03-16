@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, query, orderBy, onSnapshot } from 'firebase/firestore';
-import { BookOpen, PlusCircle, Search, LogIn, LogOut, Book } from 'lucide-react';
+import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, deleteDoc, doc } from 'firebase/firestore';
+import { BookOpen, PlusCircle, Search, LogIn, LogOut, Book, Trash2, X, ExternalLink } from 'lucide-react';
 
-// Konfigurasi Firebase diambil dari Environment Variables Vercel
 const firebaseConfig = JSON.parse(import.meta.env.VITE_FIREBASE_CONFIG || '{}');
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
@@ -13,163 +12,160 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [selectedPdf, setSelectedPdf] = useState(null); // Untuk PDF Reader
   const [newBook, setNewBook] = useState({ title: '', author: '', link: '', category: 'Cerita Rakyat' });
+  const [notification, setNotification] = useState(null);
 
-  // Ambil data buku dari Firebase
   useEffect(() => {
     const q = query(collection(db, 'books'), orderBy('title'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const booksData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setBooks(booksData);
+      setBooks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
     return () => unsubscribe();
   }, []);
 
+  const showNotif = (msg) => {
+    setNotification(msg);
+    setTimeout(() => setNotification(null), 3000);
+  };
+
   const handleLogin = () => {
-    const user = prompt("Username Admin:");
-    const pass = prompt("Password:");
-    if (user === 'rizacakep' && pass === 'bjmmajusejahtera') {
+    const pass = prompt("Password Admin:");
+    if (pass === 'bjmmajusejahtera') {
       setIsAdmin(true);
-      alert("Selamat datang Admin Riza!");
-    } else {
-      alert("Akses ditolak!");
+      showNotif("Selamat datang Admin!");
     }
   };
 
   const handleAddBook = async (e) => {
     e.preventDefault();
     try {
-      await addDoc(collection(db, 'books'), newBook);
-      setNewBook({ title: '', author: '', link: '', category: 'Cerita Rakyat' });
+      // Mengubah link GDrive biasa menjadi link Direct View agar bisa tampil di web
+      let finalLink = newBook.link;
+      if (finalLink.includes('drive.google.com')) {
+        finalLink = finalLink.replace('/view?usp=sharing', '/preview').replace('/view', '/preview');
+      }
+      await addDoc(collection(db, 'books'), { ...newBook, link: finalLink });
       setShowAddModal(false);
-      alert("Buku berhasil ditambah!");
-    } catch (err) {
-      alert("Gagal menambah buku");
+      setNewBook({ title: '', author: '', link: '', category: 'Cerita Rakyat' });
+      showNotif("✅ Buku berhasil ditambahkan!");
+    } catch (err) { showNotif("❌ Gagal menambah buku"); }
+  };
+
+  const handleDelete = async (id) => {
+    if (window.confirm("Hapus buku ini dari koleksi?")) {
+      await deleteDoc(doc(db, 'books', id));
+      showNotif("🗑️ Buku telah dihapus");
     }
   };
 
-  const filteredBooks = books.filter(book =>
-    book.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    book.author.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
   return (
-    <div className="min-h-screen bg-slate-50 font-sans">
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+      {/* Notifikasi Pop-up */}
+      {notification && (
+        <div className="fixed top-20 right-5 z-[100] bg-emerald-800 text-white px-6 py-3 rounded-lg shadow-2xl animate-bounce">
+          {notification}
+        </div>
+      )}
+
       {/* Header */}
-      <nav className="bg-emerald-700 text-white p-4 shadow-lg sticky top-0 z-10">
+      <nav className="bg-emerald-700 text-white p-4 shadow-lg sticky top-0 z-40">
         <div className="container mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 cursor-pointer" onClick={() => window.location.reload()}>
             <BookOpen size={28} />
             <h1 className="text-2xl font-bold tracking-tight">WADAH BACA</h1>
           </div>
           <div className="flex gap-4">
             {!isAdmin ? (
-              <button onClick={handleLogin} className="flex items-center gap-1 hover:text-emerald-200 transition">
-                <LogIn size={20} /> <span className="hidden md:inline">Admin</span>
-              </button>
+              <button onClick={handleLogin} className="hover:text-emerald-200 transition">Admin</button>
             ) : (
               <div className="flex gap-4 items-center">
-                <button onClick={() => setShowAddModal(true)} className="bg-white text-emerald-700 px-3 py-1 rounded-full font-bold flex items-center gap-1 hover:bg-emerald-50">
-                  <PlusCircle size={20} /> Tambah Buku
+                <button onClick={() => setShowAddModal(true)} className="bg-white text-emerald-700 px-4 py-1 rounded-full font-bold flex items-center gap-1">
+                  <PlusCircle size={18} /> Tambah
                 </button>
-                <button onClick={() => setIsAdmin(false)} className="hover:text-red-300"><LogOut size={20} /></button>
+                <button onClick={() => setIsAdmin(false)} className="text-red-200"><LogOut size={20} /></button>
               </div>
             )}
           </div>
         </div>
       </nav>
 
-      {/* Hero Section */}
-      <div className="bg-emerald-600 text-white py-12 px-4 text-center">
-        <h2 className="text-3xl md:text-4xl font-bold mb-4">Perpustakaan Digital Banjar</h2>
-        <p className="text-emerald-100 max-w-2xl mx-auto">Membaca buku cerita dan sejarah Banjar lebih mudah, kapan saja dan di mana saja.</p>
-        
-        <div className="mt-8 max-w-md mx-auto relative">
+      {/* Hero */}
+      <div className="bg-emerald-600 text-white py-10 px-4 text-center">
+        <h2 className="text-3xl font-bold mb-6">Perpustakaan Digital Banjar</h2>
+        <div className="max-w-md mx-auto relative">
           <Search className="absolute left-3 top-3 text-emerald-600" size={20} />
           <input 
-            type="text" 
-            placeholder="Cari judul buku atau penulis..." 
-            className="w-full p-3 pl-10 rounded-full text-slate-800 focus:outline-none focus:ring-4 focus:ring-emerald-300 shadow-xl"
-            value={searchTerm}
+            type="text" placeholder="Cari judul atau penulis..." 
+            className="w-full p-3 pl-10 rounded-xl text-slate-800 outline-none shadow-lg"
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
       </div>
 
-      {/* Main Content */}
-      <main className="container mx-auto p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredBooks.map(book => (
-            <div key={book.id} className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-2xl transition border border-slate-100 group">
-              <div className="p-6">
-                <div className="bg-emerald-100 w-12 h-12 rounded-lg flex items-center justify-center text-emerald-700 mb-4 group-hover:scale-110 transition">
-                  <Book size={24} />
-                </div>
-                <h3 className="text-xl font-bold text-slate-800 mb-1">{book.title}</h3>
-                <p className="text-slate-500 text-sm mb-4">Penulis: {book.author}</p>
-                <span className="inline-block bg-slate-100 text-slate-600 text-xs px-2 py-1 rounded mb-4 font-semibold uppercase">{book.category}</span>
-                <a 
-                  href={book.link} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="block w-full text-center bg-emerald-700 text-white py-2 rounded-lg font-bold hover:bg-emerald-800 transition"
-                >
-                  Baca Sekarang
-                </a>
-              </div>
-            </div>
-          ))}
-        </div>
-        
-        {filteredBooks.length === 0 && (
-          <div className="text-center py-20 text-slate-400">
-            <p className="text-xl italic">Buku yang pian cari belum ada...</p>
+      {/* List Buku */}
+      <main className="container mx-auto p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+        {books.filter(b => b.title.toLowerCase().includes(searchTerm.toLowerCase())).map(book => (
+          <div key={book.id} className="bg-white rounded-xl shadow-sm border p-5 hover:shadow-md transition relative group">
+            {isAdmin && (
+              <button 
+                onClick={() => handleDelete(book.id)}
+                className="absolute top-2 right-2 text-slate-300 hover:text-red-600 transition p-2"
+              >
+                <Trash2 size={18} />
+              </button>
+            )}
+            <div className="text-emerald-700 mb-3"><Book size={30} /></div>
+            <h3 className="font-bold text-lg leading-tight mb-1">{book.title}</h3>
+            <p className="text-slate-500 text-sm mb-4 italic">{book.author}</p>
+            <button 
+              onClick={() => setSelectedPdf(book)}
+              className="w-full bg-emerald-50 text-emerald-700 py-2 rounded-lg font-bold hover:bg-emerald-700 hover:text-white transition flex items-center justify-center gap-2"
+            >
+              Baca di Sini <ExternalLink size={16} />
+            </button>
           </div>
-        )}
+        ))}
       </main>
 
-      {/* Modal Tambah Buku */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <h2 className="text-2xl font-bold mb-4 text-emerald-700">Tambah Koleksi Baru</h2>
-            <form onSubmit={handleAddBook} className="space-y-4">
-              <input 
-                type="text" placeholder="Judul Buku" required
-                className="w-full p-2 border rounded focus:ring-2 focus:ring-emerald-500 outline-none"
-                onChange={e => setNewBook({...newBook, title: e.target.value})}
-              />
-              <input 
-                type="text" placeholder="Penulis" required
-                className="w-full p-2 border rounded focus:ring-2 focus:ring-emerald-500 outline-none"
-                onChange={e => setNewBook({...newBook, author: e.target.value})}
-              />
-              <input 
-                type="url" placeholder="Link Google Drive / PDF" required
-                className="w-full p-2 border rounded focus:ring-2 focus:ring-emerald-500 outline-none"
-                onChange={e => setNewBook({...newBook, link: e.target.value})}
-              />
-              <select 
-                className="w-full p-2 border rounded"
-                onChange={e => setNewBook({...newBook, category: e.target.value})}
-              >
-                <option>Cerita Rakyat</option>
-                <option>Sejarah</option>
-                <option>Agama</option>
-                <option>Sastra</option>
-              </select>
-              <div className="flex gap-2 pt-2">
-                <button type="submit" className="flex-1 bg-emerald-700 text-white py-2 rounded font-bold hover:bg-emerald-800">Simpan</button>
-                <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 bg-slate-200 text-slate-700 py-2 rounded font-bold hover:bg-slate-300">Batal</button>
-              </div>
-            </form>
+      {/* MODAL PDF READER */}
+      {selectedPdf && (
+        <div className="fixed inset-0 bg-black/90 z-[60] flex flex-col">
+          <div className="p-4 flex justify-between items-center text-white bg-emerald-900">
+            <h3 className="font-bold">{selectedPdf.title}</h3>
+            <button onClick={() => setSelectedPdf(null)} className="p-2 hover:bg-red-600 rounded-full transition">
+              <X size={24} />
+            </button>
+          </div>
+          <div className="flex-1 overflow-hidden bg-slate-800">
+            <iframe 
+              src={selectedPdf.link} 
+              className="w-full h-full border-none"
+              title="PDF Reader"
+              allow="autoplay"
+            ></iframe>
           </div>
         </div>
       )}
 
-      <footer className="mt-20 border-t p-8 text-center text-slate-400 text-sm">
-        <p>© 2026 Wadah Baca - Perpustakaan Digital Banjar</p>
-      </footer>
+      {/* MODAL TAMBAH BUKU */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <form onSubmit={handleAddBook} className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl space-y-4">
+            <h2 className="text-xl font-bold text-emerald-700">Tambah Koleksi</h2>
+            <input type="text" placeholder="Judul Buku" required className="w-full p-2 border rounded" onChange={e => setNewBook({...newBook, title: e.target.value})} />
+            <input type="text" placeholder="Penulis" required className="w-full p-2 border rounded" onChange={e => setNewBook({...newBook, author: e.target.value})} />
+            <input type="url" placeholder="Link Google Drive" required className="w-full p-2 border rounded" onChange={e => setNewBook({...newBook, link: e.target.value})} />
+            <select className="w-full p-2 border rounded" onChange={e => setNewBook({...newBook, category: e.target.value})}>
+              <option>Cerita Rakyat</option><option>Sejarah</option><option>Agama</option>
+            </select>
+            <div className="flex gap-2">
+              <button type="submit" className="flex-1 bg-emerald-700 text-white py-2 rounded font-bold">Simpan</button>
+              <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 bg-slate-200 py-2 rounded">Batal</button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
